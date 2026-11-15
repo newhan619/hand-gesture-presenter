@@ -4,86 +4,47 @@
 
 **현재 검증 범위:** Windows의 Python 3.12.14에서 패키지 설치, 모델 로딩과 검은 영상 추론, 모의 제스처, 자동 테스트를 확인했다. 실제 손 인식률과 PowerPoint 연동은 웹캠이 있는 팀원의 확인이 필요하다. 사용자 제스처 학습과 판서는 포함하지 않았다.
 
-## 지금 카메라 없이 실행하기
+## 팀원이 처음 테스트하는 방법
 
-모의 실행은 추가 패키지 없이 Python만으로 실행할 수 있다. 새로 내려받은 PC에서는 다음 명령을 사용한다.
+**ZIP으로 내려받아 실행하면 된다. Git 프로그램을 설치하거나 켤 필요는 없다.** 테스트만 할 때는 GitHub 초대도 필요 없다.
 
-```powershell
-py -3.12 main.py --demo
-```
+준비물은 Windows 11 PC, **Python 3.12 64비트**, 웹캠이다. PPT 조작까지 시험하려면 데스크톱 PowerPoint도 필요하다.
 
-아래 설치 과정을 마쳐 `.venv`가 있는 PC에서는 PowerShell에서 실행 스크립트를 사용할 수 있다.
+1. Python이 없다면 [Python 공식 다운로드](https://www.python.org/downloads/windows/)에서 **3.12 버전의 64비트 Python**을 설치한다.
+2. [프로그램 ZIP 다운로드](https://github.com/newhan619/hand-gesture-presenter/archive/refs/heads/main.zip)를 누르고 **압축을 푼다**. GitHub에서는 초록색 **Code → Download ZIP**으로도 받을 수 있다.
+3. 압축을 푼 폴더 안에서 **`main.py`와 `setup.ps1`이 보이는 폴더**로 들어간다.
+4. 폴더의 빈 공간을 우클릭하고 **터미널에서 열기**를 누른다. PowerShell 창에서 아래 명령을 한 줄씩 실행한다.
 
-```powershell
-.\run.ps1 -Mode demo
-```
-
-스크립트 실행이 제한되어 있으면 가상환경 Python을 직접 실행할 수 있다.
-
-```powershell
-.\.venv\Scripts\python.exe -X utf8 main.py --demo
-```
-
-예상 출력은 `next → previous → pointer_on → pointer_off → PASS`다. 이 모드는 카메라를 열거나 키보드·마우스를 제어하지 않는다. 일반 Python만 있는 다른 PC에서도 `python main.py --demo`로 실행할 수 있다.
-
-## 팀원 PC 설치
-
-Windows 11, **Python 3.12 64비트**, 웹캠, 데스크톱 PowerPoint를 기준으로 한다. 단일 기본 모니터의 전체 화면 슬라이드 쇼가 대상이다. Python 설치는 [공식 배포처](https://www.python.org/downloads/windows/)에서 진행한다.
-
-1. 저장소 파일을 내려받거나 복제한 뒤 이 폴더에서 PowerShell을 연다.
-2. 아래 설치 명령으로 `.venv`를 만들고 검증한 패키지 버전과 공식 모델을 준비한다. 처음 한 번은 인터넷 연결이 필요하다.
-3. 설치 확인과 모의 실행을 진행한다.
+먼저 필요한 프로그램과 손 인식 모델을 설치한다. **이 폴더에서 처음 한 번만 실행**하며 인터넷 연결이 필요하다. `Setup complete`가 나오면 설치가 끝난 것이다.
 
 ```powershell
 .\setup.ps1
-.\run.ps1 -Mode check
-.\run.ps1 -Mode demo
 ```
 
-Python 경로를 직접 지정하려면 `setup.ps1 -PythonPath 'C:\경로\python.exe'`를 사용한다. 시스템의 실행 정책 때문에 스크립트를 사용할 수 없으면 다음 명령을 순서대로 실행한다. 가상환경 활성화는 필요 없다.
-
-```powershell
-py -3.12 -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -r requirements.lock.txt
-.\.venv\Scripts\python.exe -m pip check
-.\.venv\Scripts\python.exe -X utf8 main.py --download-model
-.\.venv\Scripts\python.exe -X utf8 main.py --check-model
-```
-
-`requirements.txt`는 직접 사용하는 패키지, `requirements.lock.txt`는 이 PC에서 설치·검사한 전체 버전이다. MediaPipe가 요구하는 `opencv-contrib-python`에 카메라·화면 표시 기능도 있으므로 OpenCV 배포판은 이것 하나만 사용한다.
-
-## 웹캠 인식 확인
+이어서 웹캠 테스트를 실행한다.
 
 ```powershell
 .\run.ps1 -Mode preview
-# 다른 카메라 번호를 사용한다면
+```
+
+카메라 화면에 손을 보여주면 관절의 점과 선, 손가락 수가 나타난다. 이 단계에서는 키보드나 마우스를 움직이지 않는다. 다른 카메라를 선택하려면 다음 명령을 사용한다.
+
+```powershell
 .\run.ps1 -Mode preview -Camera 1
 ```
 
-반전 미리보기에 관절 21개와 연결선, 좌우 손, 손가락 수, 손 모양, 유지 프레임과 FPS가 표시된다. 화면 글자는 OpenCV 기본 폰트가 지원하는 영문을 사용했다. 이 단계에서는 실제 PPT 입력을 보내지 않는다.
+창을 선택한 상태에서 **Q**를 누르거나 창을 닫으면 종료한다. 터미널에서 **Ctrl+C**로도 종료할 수 있다. 실행이 안 되면 아래의 **설치 문제 해결과 코드 설명**을 펼쳐 직접 실행 방법을 확인한다.
 
-| 표시 | 뜻 |
-| --- | --- |
-| FIST | 주먹 |
-| OPEN | 손가락 다섯 개를 편 손 |
-| POINT | 검지만 편 손 |
-| OTHER | 그 밖의 손 모양 |
-| NO HAND | 손 미검출, 제어 정지 |
-| TWO HANDS | 두 손 검출, 제어 정지 |
-| armed | 스와이프를 다시 받을 수 있는 상태 |
+세부 시험 항목은 [팀원 테스트 체크리스트](docs/camera_test_checklist.md)에 있다.
 
-`Q` 또는 `Esc`는 미리보기 창에 포커스가 있을 때 종료한다. 창 닫기와 터미널 `Ctrl+C`로도 종료할 수 있다. `P`는 미리보기에서 일시정지/재개다. 손 전체를 밝은 곳에서 카메라에 보여주고 [팀원 체크리스트](docs/camera_test_checklist.md)를 따라 시험한다.
+## PowerPoint까지 조작해 보기
 
-## PowerPoint 실제 조작
-
-1. 먼저 미리보기에서 모양과 방향을 확인한다.
-2. PPT를 기본 모니터에서 전체 화면 슬라이드 쇼로 연다.
-3. 아래 명령으로 실행하고 5초 동안 PowerPoint 슬라이드 쇼 창을 선택한다.
+1. 위의 웹캠 테스트에서 손이 잘 인식되는지 확인한다.
+2. PowerPoint를 열고 **기본 모니터에서 전체 화면 슬라이드 쇼**를 시작한다.
+3. 터미널에서 아래 명령을 실행하고 **5초 안에 PPT 슬라이드 쇼 창을 클릭**한다.
 
 ```powershell
 .\run.ps1 -Mode present
-# 또는
-.\.venv\Scripts\python.exe -X utf8 main.py --enable-input
 ```
 
 | 손동작 | 동작 |
@@ -95,9 +56,94 @@ py -3.12 -m venv .venv
 | 주먹을 5프레임 유지 | Ctrl+A로 포인터 종료, 스와이프 다시 준비 |
 | 손 미검출 또는 두 손 검출 | 입력 정지, 추적 초기화, 포인터 종료 |
 
-슬라이드 입력 뒤에는 **1초 쿨다운과 주먹 자세 복귀가 모두 필요**하다. 손을 계속 편 채 왕복해도 다시 넘기지 않는다. PowerPoint 슬라이드 쇼가 활성 창일 때만 입력한다. 미리보기를 클릭하면 입력이 멈추므로 PPT 창을 다시 선택하고 손 모양을 새로 유지한다. 활성 창 판별은 Windows의 `POWERPNT.EXE`와 슬라이드 쇼 창 클래스 `screenClass`를 기준으로 하며, 팀원 PC에서 확인해야 한다. 브라우저 PowerPoint와 다른 발표 앱은 지원 대상이 아니다.
+슬라이드를 한 번 넘겼다면 **주먹을 쥐고, 마지막 입력에서 1초 이상 지난 뒤** 다시 스와이프한다. 미리보기를 클릭하면 PPT 조작이 멈추므로 PPT 창을 다시 선택한다. 데스크톱 PowerPoint의 전체 화면 슬라이드 쇼에서 사용한다.
 
 마우스를 직접 화면 모서리로 옮기면 PyAutoGUI 비상 중단이 작동한다. 자동 포인터 이동은 모서리를 피한다. 종료할 때 PPT 창이 활성 상태라면 포인터를 화살표로 돌린다. 다른 창이 활성 상태라면 그 창에 단축키를 보내지 않으므로 필요 시 PPT에서 직접 `Ctrl+A`를 누른다.
+
+## 저장소 소유자가 팀원을 초대하는 방법
+
+팀원이 코드를 수정해서 같은 저장소에 올리려면 소유자가 한 번만 초대하면 된다.
+
+1. 팀원의 **GitHub 아이디**를 받는다.
+2. [저장소](https://github.com/newhan619/hand-gesture-presenter)에서 **Settings → Collaborators → Add people**을 누른다.
+3. 팀원 아이디를 검색해서 초대한다.
+4. 팀원이 초대를 수락하면 수정 내용을 저장소에 올릴 수 있다.
+
+[GitHub 공식 초대 안내](https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/repository-access-and-collaboration/inviting-collaborators-to-a-personal-repository)
+
+## 팀원이 수정한 코드를 올리는 방법
+
+초대를 수락한 팀원은 **GitHub 웹사이트에서 파일을 편집하고 저장**하면 된다. 작은 수정은 아래 순서로 진행한다.
+
+1. GitHub에 로그인하고 이 저장소에서 수정할 `.py` 파일을 클릭한다. 폴더 안의 파일이면 해당 폴더를 먼저 연다.
+2. 파일 위쪽의 **연필 버튼**을 누른다.
+3. 코드를 수정한다. PC에서 이미 수정했다면 **같은 경로의 파일**을 열어 수정한 내용을 복사하고 웹 편집기에 붙여넣어도 된다.
+4. **Commit changes…**를 누르고 `카메라 인식 수정`처럼 무엇을 바꿨는지 짧게 적는다.
+5. 현재 `main` 브랜치에 저장하는 항목을 선택하고 **Commit changes**를 눌러 저장한다. 파일을 여러 개 수정했다면 각 파일에서 이 과정을 반복한다.
+
+이렇게 저장하면 별도의 push 명령 없이 GitHub에 반영된다. 저장소의 **Actions** 탭에서 자동 테스트 결과를 볼 수 있다. 실제 웹캠과 PPT 동작도 팀원 PC에서 별도로 확인한다.
+
+**GitHub에 저장한 수정 내용은 PC의 ZIP 폴더에 자동 반영되지 않는다.** 다음 테스트 때 최신 ZIP을 다시 받아 압축을 풀고 위 설치·실행 순서를 따르면 된다. PC에서 수정하던 내용은 GitHub에 올린 뒤 최신 ZIP을 받는다.
+
+테스트 중 문제가 생기면 [Issues](https://github.com/newhan619/hand-gesture-presenter/issues)에 실행 명령, 오류 메시지, 어떤 손동작에서 문제가 생겼는지를 적는다.
+
+[GitHub 공식 웹 편집 안내](https://docs.github.com/en/repositories/working-with-files/managing-files/editing-files)
+
+<details>
+<summary>설치 문제 해결과 코드 설명 자세히 보기</summary>
+
+## 스크립트가 실행되지 않을 때
+
+PowerShell에서 스크립트 실행이 차단되면 `main.py`가 있는 폴더에서 아래 명령을 한 줄씩 실행한다. 가상환경 활성화는 필요 없다.
+
+```powershell
+py -3.12 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements.lock.txt
+.\.venv\Scripts\python.exe -m pip check
+.\.venv\Scripts\python.exe -X utf8 main.py --download-model
+.\.venv\Scripts\python.exe -X utf8 main.py --check-model
+```
+
+설치 후 웹캠 테스트와 PPT 조작은 각각 다음 명령으로 실행한다.
+
+```powershell
+.\.venv\Scripts\python.exe -X utf8 main.py
+.\.venv\Scripts\python.exe -X utf8 main.py --enable-input
+```
+
+Python 경로를 직접 지정하려면 `setup.ps1 -PythonPath 'C:\경로\python.exe'`를 사용한다. `requirements.txt`는 직접 사용하는 패키지, `requirements.lock.txt`는 설치·검사한 전체 버전이다. MediaPipe의 의존성인 GUI OpenCV는 `opencv-contrib-python` 하나만 사용한다.
+
+## 카메라 없이 확인하기
+
+Python만 설치되어 있다면 다음 명령으로 모의 실행할 수 있다.
+
+```powershell
+py -3.12 main.py --demo
+```
+
+설치가 끝난 폴더에서는 다음 명령으로 실행해도 된다.
+
+```powershell
+.\run.ps1 -Mode demo
+```
+
+예상 출력은 `next → previous → pointer_on → pointer_off → PASS`다. 카메라를 열거나 키보드·마우스를 제어하지 않는다.
+
+## 카메라 화면의 표시
+
+| 표시 | 뜻 |
+| --- | --- |
+| FIST | 주먹 |
+| OPEN | 손가락 다섯 개를 편 손 |
+| POINT | 검지만 편 손 |
+| OTHER | 그 밖의 손 모양 |
+| NO HAND | 손 미검출, 제어 정지 |
+| TWO HANDS | 두 손 검출, 제어 정지 |
+| armed | 스와이프를 다시 받을 수 있는 상태 |
+
+화면 글자는 OpenCV 기본 폰트가 지원하는 영문을 사용했다. `P`는 미리보기 창에서 일시정지/재개다.
+
+실제 PPT 입력은 Windows의 `POWERPNT.EXE`와 슬라이드 쇼 창 클래스 `screenClass`로 활성 창을 확인한다. 이 판별은 팀원 PC에서 검증해야 한다. 브라우저 PowerPoint와 다른 발표 앱은 지원 대상이 아니다.
 
 ## 규칙과 조정
 
@@ -160,3 +206,5 @@ py -3.12 -m venv .venv
 - [OpenCV 패키지 공식 안내](https://pypi.org/project/opencv-python/): GUI 배포판 하나만 설치하는 원칙
 - [PyAutoGUI 공식 문서](https://pyautogui.readthedocs.io/en/latest/): 키보드·마우스 제어와 비상 중단
 - [Microsoft PowerPoint 단축키](https://support.microsoft.com/en-us/accessibility/powerpoint/use-keyboard-shortcuts-to-deliver-powerpoint-presentations): Ctrl+L, Ctrl+A, 슬라이드 이동
+
+</details>
