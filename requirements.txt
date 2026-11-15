@@ -1,0 +1,5 @@
+# MediaPipe가 의존하는 GUI OpenCV 하나만 설치한다.
+mediapipe==1.2.3
+opencv-contrib-python==4.14.0.94
+numpy==2.5.4
+PyAutoGUI==0.9.54

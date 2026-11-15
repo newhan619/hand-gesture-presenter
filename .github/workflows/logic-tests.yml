@@ -1,0 +1,16 @@
+name: Camera-free logic tests
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  logic:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Unit tests without camera or desktop input
+        run: python -X utf8 -m unittest discover -s tests -v
+      - name: Demo without third-party packages
+        run: python -X utf8 main.py --demo
