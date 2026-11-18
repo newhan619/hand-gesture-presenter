@@ -63,6 +63,17 @@ class CameraLifecycleTests(unittest.TestCase):
         self.run_with_fakes()
         self.assertEqual(self.cv2.circle.call_count, 21)
 
+    def test_shape_uses_image_landmarks_not_curled_world_estimate(self):
+        # 실제 웹캠에서 편 손의 world 추정 좌표가 굽은 손가락처럼 나와 FIST/OTHER로 판정됐다.
+        # 화면 좌표는 편 손, world는 주먹인 프레임으로 같은 상황을 만든다.
+        self.landmarker.detect_for_video.return_value = SimpleNamespace(
+            hand_landmarks=[synthetic_hand((True,)*5)],
+            hand_world_landmarks=[synthetic_hand((False,)*5)],
+            handedness=[[SimpleNamespace(category_name="Left")]])
+        self.run_with_fakes()
+        texts = [call.args[1] for call in self.cv2.putText.call_args_list]
+        self.assertIn("Left | OPEN | fingers: 5", texts)
+
     def test_two_hands_draw_but_do_not_control(self):
         points = synthetic_hand((True,)*5)
         self.landmarker.detect_for_video.return_value = SimpleNamespace(

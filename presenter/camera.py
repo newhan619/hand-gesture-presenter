@@ -68,9 +68,8 @@ def run_camera(args, config):
                     mirrored = [Point(1-p.x, p.y, p.z) for p in raw]
                     draw_hand(cv2, display, mirrored)
                     if len(result.hand_landmarks) == 1:
-                        world = [Point(p.x, p.y, p.z) for p in result.hand_world_landmarks[index]]
-                        pose = classify_hand(mirrored, world=world,
-                                             aspect_ratio=frame.shape[1]/frame.shape[0])
+                        # world 좌표는 실제 웹캠에서 편 손가락도 굽게 추정해 화면 좌표로 판별한다.
+                        pose = classify_hand(mirrored, aspect_ratio=frame.shape[1]/frame.shape[0])
                         hand = result.handedness[index][0].category_name
 
                 ready = not paused and (not args.enable_input or output.ready())
