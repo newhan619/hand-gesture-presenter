@@ -3,8 +3,9 @@
 import time
 
 from .core import GestureController, Observation, Point, classify_hand
+from .desktop import DesktopController, measure_desktop_hand
 from .model import create_landmarker
-from .output import DryRunOutput, PowerPointOutput
+from .output import DesktopOutput, DryRunOutput, PowerPointOutput
 
 
 CONNECTIONS = ((0,1),(1,2),(2,3),(3,4),(0,5),(5,6),(6,7),(7,8),
@@ -22,11 +23,14 @@ def draw_hand(cv2, image, points):
         cv2.circle(image, point, 4, (30, 180, 255), -1)
 
 
-def run_camera(args, config):
+def run_camera(args, config, *, desktop=False):
     import cv2
     import mediapipe as mp
-    controller = GestureController(config)
-    output = PowerPointOutput() if args.enable_input else DryRunOutput()
+    controller = DesktopController() if desktop else GestureController(config)
+    if args.enable_input:
+        output = DesktopOutput() if desktop else PowerPointOutput()
+    else:
+        output = DryRunOutput()
     capture = None
     paused = False
     was_ready = False
@@ -45,8 +49,11 @@ def run_camera(args, config):
             cv2.namedWindow(WINDOW, cv2.WINDOW_NORMAL)
             print("Q/ESC: 미리보기에서 종료 | P: 일시정지 | 터미널 Ctrl+C: 종료")
             if args.enable_input:
-                print("5초 뒤 준비됩니다. PowerPoint 슬라이드 쇼 창을 선택하세요.")
-                time.sleep(5)
+                if desktop:
+                    print("데스크톱 입력을 시작합니다. 주먹을 쥐고 있는 동안 입력이 멈춥니다.")
+                else:
+                    print("5초 뒤 준비됩니다. PowerPoint 슬라이드 쇼 창을 선택하세요.")
+                    time.sleep(5)
             else:
                 print("모의 입력 모드: 카메라만 사용하며 키보드·마우스는 제어하지 않습니다.")
             while True:
@@ -64,27 +71,35 @@ def run_camera(args, config):
                 display = cv2.flip(frame, 1)
                 pose = None
                 hand = "unknown"
+                desktop_hand = None
                 for index, raw in enumerate(result.hand_landmarks):
                     mirrored = [Point(1-p.x, p.y, p.z) for p in raw]
                     draw_hand(cv2, display, mirrored)
                     if len(result.hand_landmarks) == 1:
                         # world 좌표는 실제 웹캠에서 편 손가락도 굽게 추정해 화면 좌표로 판별한다.
-                        pose = classify_hand(mirrored, aspect_ratio=frame.shape[1]/frame.shape[0])
+                        aspect_ratio = frame.shape[1]/frame.shape[0]
+                        pose = classify_hand(mirrored, aspect_ratio=aspect_ratio)
                         hand = result.handedness[index][0].category_name
+                        if desktop:
+                            desktop_hand = measure_desktop_hand(mirrored, pose, aspect_ratio, hand)
 
                 ready = not paused and (not args.enable_input or output.ready())
                 if not ready:
+                    events = controller.reset_tracking()
                     if was_ready:
-                        output.emit(controller.reset_tracking())
-                    controller.reset_tracking()
+                        output.emit(events)
                 else:
                     if not was_ready:
                         # 다른 창에 있는 동안 보류한 포인터 종료를 PPT 복귀 시 처리한다.
                         output.close()
                         controller.reset_tracking()
-                    observation = Observation(now, None) if pose is None else Observation(
-                        now, pose.shape, pose.palm, pose.tip, hand)
-                    output.emit(controller.update(observation))
+                    if desktop:
+                        events = controller.update(now, desktop_hand)
+                    else:
+                        observation = Observation(now, None) if pose is None else Observation(
+                            now, pose.shape, pose.palm, pose.tip, hand)
+                        events = controller.update(observation)
+                    output.emit(events)
                 was_ready = ready
                 status = ("PAUSED" if paused else
                           "WAIT: select PowerPoint slide show" if not ready else
@@ -92,10 +107,18 @@ def run_camera(args, config):
                 detection = ("TWO HANDS - control stopped" if len(result.hand_landmarks) > 1 else
                              "NO HAND" if pose is None else
                              f"{hand} | {pose.shape.value} | fingers: {pose.count}")
-                lines = [status, detection,
-                         f"{controller.mode} | hold {controller.hold_count}/{config.hold_frames}"
-                         f" | armed: {controller.armed} | FPS {fps:.1f}",
-                         "Open hand: swipe | Index: pointer | Fist: reset | Q: quit | P: pause"]
+                if desktop:
+                    gesture = detection if pose is None else (
+                        f"{hand} | {controller.gesture if ready else pose.shape.value} | fingers: {pose.count}")
+                    action = "PAUSED" if paused else controller.action
+                    lines = [f"Mode: DESKTOP | {status}", f"Shape: {gesture}",
+                             f"Action: {action} | FPS {fps:.1f}",
+                             "Fist: pause | Q/ESC: quit | P: pause/resume"]
+                else:
+                    lines = [f"Mode: PPT | {status}", detection,
+                             f"{controller.mode} | hold {controller.hold_count}/{config.hold_frames}"
+                             f" | armed: {controller.armed} | FPS {fps:.1f}",
+                             "Open hand: swipe | Index: pointer | Fist: reset | Q: quit | P: pause"]
                 cv2.rectangle(display, (0, 0), (display.shape[1], 112), (24, 24, 24), -1)
                 for line_index, line in enumerate(lines):
                     cv2.putText(display, line, (10, 24+line_index*25),
@@ -109,7 +132,9 @@ def run_camera(args, config):
                 if cv2.getWindowProperty(WINDOW, cv2.WND_PROP_VISIBLE) < 1:
                     break
     finally:
-        if capture is not None:
-            capture.release()
-        cv2.destroyAllWindows()
-        output.close()
+        try:
+            output.close()
+        finally:
+            if capture is not None:
+                capture.release()
+            cv2.destroyAllWindows()

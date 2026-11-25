@@ -14,7 +14,7 @@ def demo_observations():
         (Shape.OPEN, 6, 0.7, 0.4),   # 이전 장
         (Shape.POINT, 5, 0.4, 0.4),  # 포인터 켜기
         (Shape.POINT, 6, 0.4, 0.8),  # 슬라이드는 넘기지 않음
-        (None, 10, 0.5, 0.5),        # 미검출 즉시 정지와 이력 초기화
+        (None, 16, 0.5, 0.5),        # 미검출 시 즉시 정지, 유예 시간 뒤 포인터 종료
     ]
     for shape, frames, start, end in steps:
         for frame in range(frames):

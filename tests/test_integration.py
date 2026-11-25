@@ -25,7 +25,7 @@ class IntegrationTests(unittest.TestCase):
         points = synthetic_hand((False,True,False,False,False))
         records = [dict(time=i/30, hand="Right",
                         landmarks=[[p.x,p.y,p.z] for p in points]) for i in range(5)]
-        records.append(dict(time=5/30, landmarks=None))
+        records.extend(dict(time=i/30, landmarks=None) for i in range(5, 21))
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory)/"synthetic.jsonl"
             path.write_text("\n".join(json.dumps(r) for r in records), encoding="utf-8")

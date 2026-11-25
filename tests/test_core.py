@@ -142,9 +142,19 @@ class ControllerTests(unittest.TestCase):
         self.feed(Shape.POINT, 5)
         self.assertEqual(self.feed(Shape.OPEN, 40, start=.2, end=.9), [])
         self.assertEqual(self.controller.mode, "POINTER")
-        self.assertEqual(self.feed(Shape.FIST, 4), [])
-        self.assertEqual(self.kinds(self.feed(Shape.FIST)), ["pointer_off"])
+        self.assertEqual(self.feed(Shape.FIST, 3, step=.1), [])
+        self.assertEqual(self.kinds(self.feed(Shape.FIST, step=.1)), ["pointer_off"])
         self.assertEqual(self.controller.mode, "SLIDES")
+
+    def test_brief_or_interrupted_fist_does_not_turn_pointer_off_at_high_sensitivity(self):
+        self.controller = GestureController(Config(hold_frames=2, smoothing=1.0))
+        self.assertEqual(self.kinds(self.feed(Shape.POINT, 2)), ["pointer_on", "move"])
+        self.assertEqual(self.feed(Shape.FIST, 2, step=.1), [])
+        self.assertEqual(self.kinds(self.feed(Shape.POINT)), ["move"])
+        self.assertEqual(self.feed(Shape.FIST, 2, step=.1), [])
+        self.assertEqual(self.feed(None, step=.1), [])
+        self.assertEqual(self.feed(Shape.FIST, 3, step=.1), [])
+        self.assertEqual(self.kinds(self.feed(Shape.FIST, step=.1)), ["pointer_off"])
 
     def test_smoothing(self):
         initial = self.feed(Shape.POINT, 5, start=.3)[-1].position[0]
@@ -156,14 +166,28 @@ class ControllerTests(unittest.TestCase):
         events = self.feed(Shape.POINT, 5, start=2, y=-2)
         self.assertEqual(events[-1].position, (1.0,0.0))
 
-    def test_missing_hand_stops_and_requires_new_hold(self):
+    def test_short_hand_loss_freezes_and_resumes_without_old_coordinates(self):
+        self.feed(Shape.POINT, 5, start=.3)
+        self.assertEqual(self.feed(None, 3, step=.1), [])
+        events = self.feed(Shape.POINT, start=.8)
+        self.assertEqual(self.kinds(events), ["move"])
+        self.assertAlmostEqual(events[0].position[0], .875)
+
+    def test_long_hand_loss_turns_pointer_off_and_requires_new_hold(self):
         self.feed(Shape.POINT, 5)
-        self.assertEqual(self.kinds(self.feed(None)), ["pointer_off"])
+        self.assertEqual(self.feed(None, 4, step=.1), [])
+        self.assertEqual(self.kinds(self.feed(None, step=.15)), ["pointer_off"])
         self.assertEqual(self.feed(None, 300), [])  # 미검출 10초
         self.assertEqual(self.feed(Shape.POINT, 4, start=.8), [])
         events = self.feed(Shape.POINT, start=.8)
         self.assertEqual(self.kinds(events), ["pointer_on","move"])
         self.assertAlmostEqual(events[-1].position[0], .875)
+
+    def test_hand_returning_after_timeout_does_not_resume_existing_pointer(self):
+        self.feed(Shape.POINT, 5)
+        self.assertEqual(self.feed(None, 4, step=.1), [])
+        self.assertEqual(self.kinds(self.feed(Shape.POINT, step=.15)), ["pointer_off"])
+        self.assertEqual(self.controller.hold_count, 1)
 
     def test_tracking_loss_does_not_bypass_slide_lock(self):
         self.swipe()
@@ -188,7 +212,8 @@ class ControllerTests(unittest.TestCase):
 
     def test_invalid_configuration(self):
         for values in (dict(hold_frames=0), dict(cooldown=-1), dict(smoothing=0),
-                       dict(pointer_margin=.5), dict(swipe_distance=math.nan)):
+                       dict(pointer_margin=.5), dict(swipe_distance=math.nan),
+                       dict(pointer_fist_hold=0), dict(pointer_loss_grace=math.nan)):
             with self.assertRaises(ValueError):
                 Config(**values)
 

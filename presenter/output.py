@@ -1,4 +1,4 @@
-"""모의 출력과 Windows PowerPoint 입력을 분리한다."""
+"""모의 출력과 Windows PowerPoint·데스크톱 입력을 분리한다."""
 
 import ctypes
 from ctypes import wintypes
@@ -8,8 +8,9 @@ import os
 class DryRunOutput:
     def emit(self, events):
         for event in events:
-            if event.kind != "move":
-                print(f"[MOCK] {event.kind}")
+            if event.kind not in ("move", "cursor_move", "drag_move"):
+                detail = f" {event.steps:+d}" if event.kind == "scroll" else ""
+                print(f"[MOCK] {event.kind}{detail}")
 
     def close(self):
         pass
@@ -49,6 +50,13 @@ def powerpoint_is_foreground():
         kernel32.CloseHandle(process)
 
 
+def move_cursor(gui, width, height, position):
+    # 모서리 2px는 PyAutoGUI 비상 중단 구역이므로 자동 이동에서 제외한다.
+    x, y = position
+    gui.moveTo(max(2, min(width-3, round(x*(width-1)))),
+               max(2, min(height-3, round(y*(height-1)))))
+
+
 class PowerPointOutput:
     def __init__(self):
         if os.name != "nt":
@@ -81,12 +89,54 @@ class PowerPointOutput:
                 self.gui.hotkey("ctrl", "a")
                 self.pointer_active = False
             elif event.kind == "move":
-                # 모서리 2px는 PyAutoGUI 비상 중단 구역이므로 자동 이동에서 제외.
-                x, y = event.position
-                self.gui.moveTo(max(2, min(self.width-3, round(x*(self.width-1)))),
-                                max(2, min(self.height-3, round(y*(self.height-1)))))
+                move_cursor(self.gui, self.width, self.height, event.position)
 
     def close(self):
         if self.pointer_active and self.ready():
             self.gui.hotkey("ctrl", "a")
             self.pointer_active = False
+
+
+class DesktopOutput:
+    def __init__(self):
+        if os.name != "nt":
+            raise RuntimeError("실제 데스크톱 입력은 Windows에서 지원합니다.")
+        import pyautogui
+        self.gui = pyautogui
+        self.gui.FAILSAFE = True
+        self.gui.PAUSE = 0.01
+        self.width, self.height = self.gui.size()
+        self.dragging = False
+
+    def ready(self):
+        return True  # 데스크톱 모드는 현재 활성 앱에 입력한다.
+
+    def emit(self, events):
+        for event in events:
+            kind = event.kind
+            if kind in ("cursor_move", "drag_move", "click", "drag_start"):
+                move_cursor(self.gui, self.width, self.height, event.position)
+            if kind == "click":
+                self.gui.click(button="left")
+            elif kind == "drag_start" and not self.dragging:
+                self.dragging = True
+                self.gui.mouseDown(button="left")
+            elif kind in ("drag_end", "pause"):
+                self.close()
+            elif kind == "scroll":
+                self.gui.scroll(event.steps)
+            elif kind == "switch_next":
+                self.gui.hotkey("alt", "tab")
+            elif kind == "switch_previous":
+                self.gui.hotkey("alt", "shift", "tab")
+
+    def close(self):
+        if self.dragging:
+            # 모서리 비상 중단으로 빠져나오더라도 이미 누른 버튼은 놓는다.
+            failsafe = self.gui.FAILSAFE
+            try:
+                self.gui.FAILSAFE = False
+                self.gui.mouseUp(button="left")
+                self.dragging = False
+            finally:
+                self.gui.FAILSAFE = failsafe

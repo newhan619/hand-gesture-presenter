@@ -96,18 +96,22 @@ class Config:
     smoothing: float = 0.3  # 현재 좌표의 비중
     max_gap: float = 0.5
     pointer_margin: float = 0.1
+    pointer_fist_hold: float = 0.25  # 주먹으로 포인터를 끄기까지 걸리는 시간
+    pointer_loss_grace: float = 0.4  # 검출이 끊겨도 포인터 모드를 유지하는 시간
 
     def __post_init__(self):
         if not isinstance(self.hold_frames, int) or self.hold_frames < 1:
             raise ValueError("hold_frames는 1 이상의 정수여야 합니다.")
         values = (self.swipe_window, self.swipe_distance, self.horizontal_ratio,
-                  self.cooldown, self.smoothing, self.max_gap, self.pointer_margin)
+                  self.cooldown, self.smoothing, self.max_gap, self.pointer_margin,
+                  self.pointer_fist_hold, self.pointer_loss_grace)
         if not all(math.isfinite(x) for x in values):
             raise ValueError("설정값에는 유한한 숫자가 필요합니다.")
         if (self.swipe_window <= 0 or not 0 < self.swipe_distance <= 1
                 or self.horizontal_ratio < 1 or self.cooldown < 0
                 or not 0 < self.smoothing <= 1 or self.max_gap <= 0
-                or not 0 <= self.pointer_margin < 0.5):
+                or not 0 <= self.pointer_margin < 0.5
+                or self.pointer_fist_hold <= 0 or self.pointer_loss_grace <= 0):
             raise ValueError("설정값 범위를 확인하세요.")
 
 
@@ -124,6 +128,23 @@ class Observation:
 class Event:
     kind: str
     position: tuple[float, float] | None = None
+    steps: int = 0
+
+
+def screen_position(tip, margin):
+    return tuple(max(0.0, min(1.0, (value - margin) / (1 - 2*margin))) for value in tip)
+
+
+def horizontal_swipe(history, timestamp, palm, window, distance, ratio):
+    """동일한 손 모양을 유지한 동안의 손바닥 경로에서 좌우 스와이프를 찾는다."""
+    history.append((timestamp, *palm))
+    while timestamp - history[0][0] > window:
+        history.popleft()
+    dx = palm[0] - history[0][1]
+    vertical = max(p[2] for p in history) - min(p[2] for p in history)
+    if abs(dx) >= distance and abs(dx) >= ratio * vertical:
+        return 1 if dx > 0 else -1
+    return 0
 
 
 class GestureController:
@@ -131,6 +152,7 @@ class GestureController:
         self.config = config or Config()
         self.mode = "SLIDES"
         self.candidate = None
+        self.candidate_since = None
         self.hold_count = 0
         self.armed = True
         self.last_slide = -math.inf
@@ -138,16 +160,19 @@ class GestureController:
         self.hand = None
         self.history = deque()
         self.smoothed = None
+        self.pointer_missing_since = None
 
     def reset_tracking(self):
-        """검출 끊김/손 교체 시 이력 초기화. 쿨다운과 재입력 잠금은 유지한다."""
+        """포인터를 끄고 추적을 초기화한다. 슬라이드 재입력 잠금은 유지한다."""
         events = [Event("pointer_off")] if self.mode == "POINTER" else []
         self.mode = "SLIDES"
         self.candidate = None
+        self.candidate_since = None
         self.hold_count = 0
         self.history.clear()
         self.smoothed = None
         self.hand = None
+        self.pointer_missing_since = None
         return events
 
     def update(self, observation: Observation) -> list[Event]:
@@ -164,28 +189,38 @@ class GestureController:
         if self.last_time is not None and o.time - self.last_time > c.max_gap:
             events += self.reset_tracking()
         self.last_time = o.time
+        if (self.pointer_missing_since is not None
+                and o.time - self.pointer_missing_since >= c.pointer_loss_grace):
+            events += self.reset_tracking()
         if o.shape is None:
+            if self.mode == "POINTER":
+                if self.pointer_missing_since is None:
+                    self.pointer_missing_since = o.time
+                    self.candidate, self.candidate_since, self.hold_count = None, None, 0
+                    self.smoothed = None
+                return events  # 위치는 즉시 멈추고, 짧은 미검출 동안에는 모드를 유지한다.
             return events + self.reset_tracking()
         if self.hand is not None and self.hand != o.hand:
             events += self.reset_tracking()
         self.hand = o.hand
+        self.pointer_missing_since = None
         if self.candidate == o.shape:
             self.hold_count = min(c.hold_frames, self.hold_count + 1)
         else:
             self.candidate, self.hold_count = o.shape, 1
+            self.candidate_since = o.time
             self.history.clear()
             self.smoothed = None
-        stable = self.hold_count >= c.hold_frames
-
         if self.mode == "POINTER":
             # 포인터 모드에서는 어떤 움직임도 슬라이드 이벤트를 만들지 않는다.
-            if stable and o.shape == Shape.FIST:
+            if o.shape == Shape.FIST and o.time - self.candidate_since >= c.pointer_fist_hold:
                 events += self.reset_tracking()
                 self.armed = True
-            elif stable and o.shape == Shape.POINT:
+            elif o.shape == Shape.POINT:
                 events.append(self._pointer(o.tip))
             return events
 
+        stable = self.hold_count >= c.hold_frames
         if stable and o.shape == Shape.POINT:
             self.mode = "POINTER"
             self.history.clear()
@@ -200,22 +235,17 @@ class GestureController:
         if o.time - self.last_slide < c.cooldown:
             self.history.clear()
             return events
-        self.history.append((o.time, *o.palm))
-        while self.history and o.time - self.history[0][0] > c.swipe_window:
-            self.history.popleft()
-        _, start_x, _ = self.history[0]
-        dx = o.palm[0] - start_x
-        vertical = max(p[2] for p in self.history) - min(p[2] for p in self.history)
-        if abs(dx) >= c.swipe_distance and abs(dx) >= c.horizontal_ratio * vertical:
-            events.append(Event("next" if dx > 0 else "previous"))
+        direction = horizontal_swipe(self.history, o.time, o.palm, c.swipe_window,
+                                     c.swipe_distance, c.horizontal_ratio)
+        if direction:
+            events.append(Event("next" if direction > 0 else "previous"))
             self.last_slide, self.armed = o.time, False
             self.history.clear()
         return events
 
     def _pointer(self, tip):
         # 영상 가장자리 10%를 제외한 영역을 기본 모니터 전체에 대응시킨다.
-        margin = self.config.pointer_margin
-        target = tuple(max(0.0, min(1.0, (v - margin) / (1 - 2*margin))) for v in tip)
+        target = screen_position(tip, self.config.pointer_margin)
         if self.smoothed is None:
             self.smoothed = target
         else:

@@ -46,7 +46,8 @@ def build_parser():
     mode.add_argument("--download-model", action="store_true", help="Google 공식 손 모델 다운로드")
     mode.add_argument("--check-env", action="store_true", help="설치와 import 검사")
     mode.add_argument("--check-model", action="store_true", help="설치와 검은 영상 모델 추론 검사")
-    parser.add_argument("--enable-input", action="store_true", help="Windows PPT 실제 입력 활성화")
+    parser.add_argument("--desktop", action="store_true", help="PPT 대신 데스크톱 모드 사용")
+    parser.add_argument("--enable-input", action="store_true", help="Windows 실제 입력 활성화")
     parser.add_argument("--camera", type=int, default=0, help="웹캠 번호 (기본 0)")
     parser.add_argument("--model", type=Path, default=DEFAULT_MODEL, help="손 모델 경로")
     parser.add_argument("--hold-frames", type=int, default=5)
@@ -66,11 +67,15 @@ def main(argv=None):
         config = Config(hold_frames=args.hold_frames, cooldown=args.cooldown,
                         swipe_distance=args.swipe_distance, smoothing=args.smoothing)
         if args.demo:
-            from presenter.demo import run_demo
-            run_demo()
+            if args.desktop:
+                from presenter.desktop_demo import run_desktop_demo
+                run_desktop_demo()
+            else:
+                from presenter.demo import run_demo
+                run_demo()
         elif args.replay is not None:
             from presenter.replay import run_replay
-            run_replay(args.replay, config)
+            run_replay(args.replay, config, desktop=args.desktop)
         elif args.download_model:
             from presenter.model import download_model
             download_model(args.model)
@@ -78,7 +83,7 @@ def main(argv=None):
             check_environment(args.model, args.check_model)
         else:
             from presenter.camera import run_camera
-            run_camera(args, config)
+            run_camera(args, config, desktop=args.desktop)
     except KeyboardInterrupt:
         print("\n사용자가 실행을 종료했습니다.")
         return 130

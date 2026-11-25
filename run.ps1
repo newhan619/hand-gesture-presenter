@@ -1,4 +1,4 @@
-param([ValidateSet('demo','preview','present','check')][string]$Mode = 'demo',
+param([ValidateSet('demo','preview','present','check','desktop-demo','desktop-preview','desktop')][string]$Mode = 'demo',
       [int]$Camera = 0)
 $ErrorActionPreference = 'Stop'
 Set-Location -LiteralPath $PSScriptRoot
@@ -11,6 +11,9 @@ $modeArgs = @(switch ($Mode) {
     'preview' { @('--camera', "$Camera") }
     'present' { @('--camera', "$Camera", '--enable-input') }
     'check' { @('--check-model') }
+    'desktop-demo' { @('--desktop', '--demo') }
+    'desktop-preview' { @('--desktop', '--camera', "$Camera") }
+    'desktop' { @('--desktop', '--camera', "$Camera", '--enable-input') }
 })
 & $venvPython -X utf8 main.py @modeArgs
 exit $LASTEXITCODE

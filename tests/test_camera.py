@@ -29,11 +29,11 @@ class CameraLifecycleTests(unittest.TestCase):
         self.context.__exit__ = Mock(return_value=False)
         self.args = SimpleNamespace(enable_input=False, model="unused.task", camera=0)
 
-    def run_with_fakes(self):
+    def run_with_fakes(self, *, desktop=False):
         with patch.dict("sys.modules", {"cv2":self.cv2,"mediapipe":self.mp}), \
              patch("presenter.camera.create_landmarker", return_value=self.context), \
              patch("builtins.print"):
-            run_camera(self.args, Config())
+            run_camera(self.args, Config(), desktop=desktop)
 
     def test_quit_releases_camera_and_windows(self):
         self.run_with_fakes()
@@ -80,3 +80,13 @@ class CameraLifecycleTests(unittest.TestCase):
             hand_landmarks=[points,points])
         self.run_with_fakes()
         self.assertEqual(self.cv2.circle.call_count, 42)
+
+    def test_desktop_preview_shows_mode_pose_and_action(self):
+        points = synthetic_hand((False, True, False, False, False))
+        self.landmarker.detect_for_video.return_value = SimpleNamespace(
+            hand_landmarks=[points], handedness=[[SimpleNamespace(category_name="Right")]])
+        self.run_with_fakes(desktop=True)
+        texts = [call.args[1] for call in self.cv2.putText.call_args_list]
+        self.assertTrue(any("Mode: DESKTOP | DRY RUN" in text for text in texts))
+        self.assertIn("Shape: Right | POINT | fingers: 1", texts)
+        self.assertTrue(any("Action: MOVE CURSOR" in text for text in texts))
