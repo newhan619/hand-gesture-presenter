@@ -42,7 +42,7 @@ def run_camera(args, config, *, desktop=False):
             capture = cv2.VideoCapture(args.camera)
             if not capture.isOpened():
                 raise RuntimeError(
-                    f"카메라 {args.camera}를 열 수 없습니다. 연결·Windows 카메라 권한·"
+                    f"카메라 {args.camera}를 열 수 없습니다. 연결·시스템 카메라 권한·"
                     "다른 앱의 카메라 사용을 확인하세요. 카메라 없는 PC는 --demo 로 실행하세요.")
             capture.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
             capture.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)

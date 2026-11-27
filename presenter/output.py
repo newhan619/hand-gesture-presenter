@@ -1,8 +1,9 @@
-"""모의 출력과 Windows PowerPoint·데스크톱 입력을 분리한다."""
+"""모의 출력과 PowerPoint·데스크톱 입력을 분리한다."""
 
 import ctypes
 from ctypes import wintypes
 import os
+import sys
 
 
 class DryRunOutput:
@@ -50,11 +51,11 @@ def powerpoint_is_foreground():
         kernel32.CloseHandle(process)
 
 
-def move_cursor(gui, width, height, position):
+def cursor_pixels(width, height, position):
     # 모서리 2px는 PyAutoGUI 비상 중단 구역이므로 자동 이동에서 제외한다.
     x, y = position
-    gui.moveTo(max(2, min(width-3, round(x*(width-1)))),
-               max(2, min(height-3, round(y*(height-1)))))
+    return (max(2, min(width-3, round(x*(width-1)))),
+            max(2, min(height-3, round(y*(height-1)))))
 
 
 class PowerPointOutput:
@@ -89,7 +90,7 @@ class PowerPointOutput:
                 self.gui.hotkey("ctrl", "a")
                 self.pointer_active = False
             elif event.kind == "move":
-                move_cursor(self.gui, self.width, self.height, event.position)
+                self.gui.moveTo(*cursor_pixels(self.width, self.height, event.position))
 
     def close(self):
         if self.pointer_active and self.ready():
@@ -99,13 +100,24 @@ class PowerPointOutput:
 
 class DesktopOutput:
     def __init__(self):
-        if os.name != "nt":
-            raise RuntimeError("실제 데스크톱 입력은 Windows에서 지원합니다.")
+        if sys.platform not in ("win32", "darwin"):
+            raise RuntimeError("실제 데스크톱 입력은 Windows와 macOS에서 지원합니다.")
+        self.is_macos = sys.platform == "darwin"
+        if self.is_macos:
+            from Quartz import CGDisplayBounds, CGMainDisplayID, CGPreflightPostEventAccess
+            if not CGPreflightPostEventAccess():
+                raise RuntimeError("macOS 실제 입력에 손쉬운 사용 권한이 필요합니다. "
+                                   "시스템 설정 → 개인정보 보호 및 보안 → 손쉬운 사용에서 "
+                                   "실행에 쓰는 터미널을 허용한 뒤 다시 실행하세요.")
+            # Retina 화면에서도 Quartz가 사용하는 화면 좌표 크기로 변환한다.
+            size = CGDisplayBounds(CGMainDisplayID()).size
+            self.width, self.height = int(size.width), int(size.height)
         import pyautogui
         self.gui = pyautogui
         self.gui.FAILSAFE = True
         self.gui.PAUSE = 0.01
-        self.width, self.height = self.gui.size()
+        if not self.is_macos:
+            self.width, self.height = self.gui.size()
         self.dragging = False
 
     def ready(self):
@@ -114,21 +126,30 @@ class DesktopOutput:
     def emit(self, events):
         for event in events:
             kind = event.kind
-            if kind in ("cursor_move", "drag_move", "click", "drag_start"):
-                move_cursor(self.gui, self.width, self.height, event.position)
-            if kind == "click":
-                self.gui.click(button="left")
+            if kind == "drag_move":
+                if self.dragging:
+                    pixels = cursor_pixels(self.width, self.height, event.position)
+                    if self.is_macos:
+                        # macOS에서는 버튼을 유지한 이동도 별도의 드래그 이벤트로 보낸다.
+                        self.gui.dragTo(*pixels, button="left", mouseDownUp=False)
+                    else:
+                        self.gui.moveTo(*pixels)
+                continue
+            if kind == "cursor_move":
+                self.gui.moveTo(*cursor_pixels(self.width, self.height, event.position))
+            elif kind == "click":
+                self.gui.click(*cursor_pixels(self.width, self.height, event.position), button="left")
             elif kind == "drag_start" and not self.dragging:
                 self.dragging = True
-                self.gui.mouseDown(button="left")
+                self.gui.mouseDown(*cursor_pixels(self.width, self.height, event.position), button="left")
             elif kind in ("drag_end", "pause"):
                 self.close()
             elif kind == "scroll":
                 self.gui.scroll(event.steps)
             elif kind == "switch_next":
-                self.gui.hotkey("alt", "tab")
+                self.gui.hotkey("command" if self.is_macos else "alt", "tab")
             elif kind == "switch_previous":
-                self.gui.hotkey("alt", "shift", "tab")
+                self.gui.hotkey("command" if self.is_macos else "alt", "shift", "tab")
 
     def close(self):
         if self.dragging:

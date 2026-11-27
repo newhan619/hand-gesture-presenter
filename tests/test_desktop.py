@@ -1,8 +1,9 @@
 import io
 from contextlib import redirect_stdout, redirect_stderr
 from dataclasses import replace
+from types import SimpleNamespace
 import unittest
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, call, patch
 
 from main import main
 from presenter.core import Event, classify_hand
@@ -102,15 +103,16 @@ class DesktopIntegrationTests(unittest.TestCase):
             main(["--desktop", "--demo", "--enable-input"])
 
     def test_windows_event_mapping_and_cleanup_without_real_input(self):
-        output = DesktopOutput.__new__(DesktopOutput)
-        output.gui = Mock(FAILSAFE=True)
-        output.width, output.height, output.dragging = 1920, 1080, False
+        gui = Mock()
+        gui.size.return_value = (1920, 1080)
+        with patch("presenter.output.sys.platform", "win32"), patch.dict("sys.modules", {"pyautogui": gui}):
+            output = DesktopOutput()
         output.emit([Event("click", (.5, .5)), Event("drag_start", (.5, .5)),
                      Event("drag_move", (1, 0)), Event("pause"), Event("scroll", steps=-2),
                      Event("switch_next"), Event("switch_previous")])
         output.close()
-        output.gui.click.assert_called_once_with(button="left")
-        output.gui.mouseDown.assert_called_once_with(button="left")
+        output.gui.click.assert_called_once_with(960, 540, button="left")
+        output.gui.mouseDown.assert_called_once_with(960, 540, button="left")
         output.gui.mouseUp.assert_called_once_with(button="left")
         output.gui.moveTo.assert_called_with(1917, 2)
         output.gui.scroll.assert_called_once_with(-2)
@@ -118,3 +120,33 @@ class DesktopIntegrationTests(unittest.TestCase):
         output.gui.hotkey.assert_any_call("alt", "shift", "tab")
         self.assertTrue(output.gui.FAILSAFE)
         self.assertFalse(output.dragging)
+
+    def test_macos_drag_stays_pressed_and_swipes_use_command_without_real_input(self):
+        gui = Mock()
+        quartz = Mock()
+        quartz.CGPreflightPostEventAccess.return_value = True
+        quartz.CGDisplayBounds.return_value = SimpleNamespace(size=SimpleNamespace(width=1440, height=900))
+        with patch("presenter.output.sys.platform", "darwin"), patch.dict(
+                "sys.modules", {"Quartz": quartz, "pyautogui": gui}):
+            output = DesktopOutput()
+        output.emit([Event("cursor_move", (0, 0)), Event("click", (.5, .5)),
+                     Event("drag_start", (.5, .5)), Event("drag_move", (1, 0)),
+                     Event("drag_move", (0, 1)), Event("drag_end"), Event("scroll", steps=2),
+                     Event("switch_next"), Event("switch_previous")])
+        output.close()
+        self.assertEqual(gui.method_calls, [
+            call.moveTo(2, 2), call.click(720, 450, button="left"),
+            call.mouseDown(720, 450, button="left"),
+            call.dragTo(1437, 2, button="left", mouseDownUp=False),
+            call.dragTo(2, 897, button="left", mouseDownUp=False), call.mouseUp(button="left"),
+            call.scroll(2), call.hotkey("command", "tab"), call.hotkey("command", "shift", "tab"),
+        ])
+        self.assertTrue(gui.FAILSAFE)
+
+    def test_macos_permission_error_explains_where_to_allow_input(self):
+        quartz = Mock()
+        quartz.CGPreflightPostEventAccess.return_value = False
+        with patch("presenter.output.sys.platform", "darwin"), patch.dict(
+                "sys.modules", {"Quartz": quartz, "pyautogui": None}):
+            with self.assertRaisesRegex(RuntimeError, "손쉬운 사용"):
+                DesktopOutput()

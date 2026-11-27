@@ -47,7 +47,8 @@ def build_parser():
     mode.add_argument("--check-env", action="store_true", help="설치와 import 검사")
     mode.add_argument("--check-model", action="store_true", help="설치와 검은 영상 모델 추론 검사")
     parser.add_argument("--desktop", action="store_true", help="PPT 대신 데스크톱 모드 사용")
-    parser.add_argument("--enable-input", action="store_true", help="Windows 실제 입력 활성화")
+    parser.add_argument("--enable-input", action="store_true",
+                        help="실제 입력 활성화 (데스크톱: Windows/macOS, PPT: Windows)")
     parser.add_argument("--camera", type=int, default=0, help="웹캠 번호 (기본 0)")
     parser.add_argument("--model", type=Path, default=DEFAULT_MODEL, help="손 모델 경로")
     parser.add_argument("--hold-frames", type=int, default=5)
