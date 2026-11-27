@@ -6,7 +6,7 @@ import unittest
 from unittest.mock import Mock, call, patch
 
 from main import main
-from presenter.core import Event, classify_hand
+from presenter.core import Event, Shape, classify_hand
 from presenter.desktop import DesktopController, measure_desktop_hand
 from presenter.desktop_demo import demo_landmarks
 from presenter.output import DesktopOutput
@@ -15,6 +15,20 @@ from presenter.output import DesktopOutput
 def hand(shape, x=.5, y=.5, name="Right"):
     points = demo_landmarks(shape, x, y)
     return measure_desktop_hand(points, classify_hand(points), 1.0, name)
+
+
+def four_fingers(x=.5, y=.5, name="Right"):
+    """빠른 스와이프 중 엄지만 접힌 것처럼 보이는 프레임(OTHER, 손가락 4개)."""
+    points = demo_landmarks("OPEN", x, y)
+    points[1:5] = demo_landmarks("POINT", x, y)[1:5]
+    return measure_desktop_hand(points, classify_hand(points), 1.0, name)
+
+
+def bent_index_pinch(x=.5, y=.5):
+    """엄지·검지는 붙어 있지만 검지가 굽어 펴짐·뻗음 조건을 모두 놓친 프레임."""
+    pinch = hand("PINCH", x, y)
+    pose = replace(pinch.pose, shape=Shape.OTHER, fingers=(False, False, True, True, True))
+    return replace(pinch, pose=pose, index_extension=0.0)
 
 
 def kinds(events):
@@ -38,6 +52,22 @@ class DesktopControllerTests(unittest.TestCase):
                          ["drag_start", "drag_move"])
         self.assertEqual(kinds(self.controller.update(.26, hand("PINCH", x=.7))), ["drag_move"])
         self.assertEqual(kinds(self.controller.update(.30, hand("POINT"))), ["drag_end"])
+
+    def test_drag_continues_when_index_bends_while_pinched(self):
+        # 실제 웹캠: 집은 채 움직이는 중 검지가 굽어 drag_end 후 바로 drag_start가 됐다.
+        self.controller.update(0, hand("POINT"))
+        self.controller.update(.07, hand("PINCH"))
+        self.assertEqual(kinds(self.controller.update(.16, hand("PINCH", x=.65))),
+                         ["drag_start", "drag_move"])
+        self.assertEqual(kinds(self.controller.update(.2, bent_index_pinch(x=.7))), ["drag_move"])
+        self.assertEqual(kinds(self.controller.update(.24, hand("PINCH", x=.75))), ["drag_move"])
+        self.assertEqual(kinds(self.controller.update(.3, hand("POINT"))), ["drag_end"])
+
+    def test_new_pinch_still_requires_index(self):
+        self.controller.update(0, hand("POINT"))
+        self.assertEqual(self.controller.update(.07, bent_index_pinch()), [])
+        self.assertNotEqual(self.controller.gesture, "PINCH")
+        self.assertEqual(kinds(self.controller.update(.17, hand("POINT"))), ["cursor_move"])
 
     def test_fist_with_touching_fingers_pauses_and_drops_drag(self):
         self.controller.update(0, hand("POINT"))
@@ -90,6 +120,52 @@ class DesktopControllerTests(unittest.TestCase):
         self.controller.update(1.5, hand("POINT"))
         self.controller.update(1.6, hand("OPEN", x=.65))
         self.assertEqual(kinds(self.controller.update(1.75, hand("OPEN", x=.3))), ["switch_previous"])
+
+    def test_brief_non_open_frame_during_swipe_keeps_history(self):
+        # 실제 웹캠: 편 손을 빠르게 옮기는 중 한 프레임이 손가락 4개(OTHER)로 나와 전환이 안 됐다.
+        flicker = four_fingers(x=.42)
+        self.assertEqual(flicker.pose.count, 4)
+        self.controller.update(0, hand("OPEN", x=.3))
+        self.controller.update(.033, hand("OPEN", x=.36))
+        self.assertEqual(self.controller.update(.067, flicker), [])
+        self.assertEqual(kinds(self.controller.update(.1, hand("OPEN", x=.5))), ["switch_next"])
+
+    def test_long_non_open_gap_still_clears_swipe_history(self):
+        self.controller.update(0, hand("OPEN", x=.3))
+        for t in (.05, .12, .21):  # 0.15초보다 길게 OPEN이 아님
+            self.controller.update(t, four_fingers(x=.4))
+        self.assertEqual(self.controller.update(.25, hand("OPEN", x=.5)), [])
+
+    def test_swipe_grace_is_checked_when_open_returns(self):
+        for delay, expected in ((.15, ["switch_next"]), (.20, [])):
+            with self.subTest(delay=delay):
+                controller = DesktopController()
+                controller.update(0, hand("OPEN", x=.3))
+                controller.update(.05, four_fingers(x=.35))
+                self.assertEqual(kinds(controller.update(.05 + delay, hand("OPEN", x=.55))), expected)
+                if delay > controller.config.swipe_grace:
+                    self.assertEqual(kinds(controller.update(.05 + delay + .06, hand("OPEN", x=.80))),
+                                     ["switch_next"])
+
+    def test_short_shape_flicker_does_not_rearm_swipe_after_cooldown(self):
+        self.controller.update(0, hand("OPEN", x=.30))
+        self.assertEqual(kinds(self.controller.update(.10, hand("OPEN", x=.60))), ["switch_next"])
+        for t, x in ((.39, .60), (.68, .40), (.90, .30)):
+            self.assertEqual(self.controller.update(t, hand("OPEN", x=x)), [])
+        self.assertEqual(self.controller.update(.95, four_fingers(x=.30)), [])
+        self.assertEqual(self.controller.update(.99, hand("OPEN", x=.30)), [])
+        self.assertEqual(self.controller.update(1.08, hand("OPEN", x=.58)), [])
+        self.controller.update(1.15, hand("POINT"))
+        self.controller.update(1.20, hand("OPEN", x=.60))
+        self.assertEqual(kinds(self.controller.update(1.28, hand("OPEN", x=.30))), ["switch_previous"])
+
+    def test_other_intentional_gestures_break_swipe_history(self):
+        for shape in ("POINT", "TWO FINGERS", "PINCH", "FIST"):
+            with self.subTest(shape=shape):
+                controller = DesktopController()
+                controller.update(0, hand("OPEN", x=.30))
+                controller.update(.05, hand(shape, x=.35))
+                self.assertNotIn("switch_next", kinds(controller.update(.10, hand("OPEN", x=.60))))
 
 
 class DesktopIntegrationTests(unittest.TestCase):

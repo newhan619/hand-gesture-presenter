@@ -20,6 +20,7 @@ class DesktopConfig:
     swipe_distance: float = 0.19
     swipe_window: float = 0.5
     swipe_horizontal_ratio: float = 2.0
+    swipe_grace: float = 0.15  # 스와이프 중 모호한 OTHER 모양을 잠깐 허용한다.
     switch_cooldown: float = 0.8
     cursor_margin: float = 0.1
     cursor_smoothing: float = 0.5  # 현재 좌표의 비중
@@ -64,6 +65,7 @@ class DesktopController:
         self.cursor = None
         self.scroll_anchor = None
         self.swipe_history = deque()
+        self.swipe_gap_since = None
         self.swipe_used = False
         self.pinch_ready = False  # 처음 잡히거나 끊긴 손은 손가락을 뗀 뒤 시작한다.
         self.pinch_since = None
@@ -80,8 +82,7 @@ class DesktopController:
         self.hand = None
         self.cursor = None
         self.scroll_anchor = None
-        self.swipe_history.clear()
-        self.swipe_used = False
+        self._reset_swipe()
         self.pinch_ready = False
         self.feedback_until = -math.inf
         self.gesture = "NO HAND"
@@ -116,22 +117,25 @@ class DesktopController:
 
         c = self.config
         was_pinching = self.pinch_since is not None
-        close_enough = hand.pinch_gap < c.pinch_open if was_pinching else hand.pinch_gap <= c.pinch_close
-        pinched = close_enough and (index_reaches or hand.pose.fingers[1])
+        if was_pinching:
+            # 집는 동안에는 검지가 자연스럽게 굽으므로 두 손끝 사이 거리만 본다.
+            pinched = hand.pinch_gap < c.pinch_open
+        else:
+            # 새 핀치는 검지 조건까지 확인해 주먹에서 손끝이 가까워진 것을 클릭으로 보지 않는다.
+            pinched = hand.pinch_gap <= c.pinch_close and (index_reaches or hand.pose.fingers[1])
         if hand.pinch_gap >= c.pinch_open:
             self.pinch_ready = True
 
         # 2–3. 같은 핀치는 클릭 또는 드래그 둘 중 하나로 끝난다.
-        if (pinched and self.pinch_ready) or was_pinching:
+        if pinched or was_pinching:
             self.gesture = "PINCH" if pinched else hand.pose.shape.value
             self.scroll_anchor = None
-            self.swipe_history.clear()
-            self.swipe_used = False
+            self._reset_swipe()
+            if not self.pinch_ready and not was_pinching:
+                # 다시 잡힌 손이 이미 붙어 있으면 떼기 전까지 입력하지 않는다.
+                self.action = "RELEASE TO START"
+                return events
             return events + self._update_pinch(now, hand, pinched)
-        if pinched:
-            # 손이 돌아왔을 때 이미 붙어 있으면 떼기 전까지 모든 하위 동작을 차단한다.
-            self.gesture, self.action = "PINCH", "RELEASE TO START"
-            return events
 
         pose = hand.pose
         fingers = pose.fingers
@@ -140,9 +144,17 @@ class DesktopController:
             "OTHER" if pose.shape == Shape.FIST else pose.shape.value)
         if not two_fingers:
             self.scroll_anchor = None
-        if pose.shape != Shape.OPEN:
-            self.swipe_history.clear()
-            self.swipe_used = False
+        # OPEN이 돌아온 첫 프레임에서도 만료부터 검사해 오래된 이동을 이어 붙이지 않는다.
+        if self.swipe_gap_since is not None and now > self.swipe_gap_since + c.swipe_grace:
+            self._reset_swipe()
+        if pose.shape == Shape.OPEN:
+            self.swipe_gap_since = None
+        elif pose.shape == Shape.OTHER and not two_fingers:
+            # 이미 전환한 뒤의 짧은 오인식도 같은 스와이프로 처리한다.
+            if self.swipe_gap_since is None and (self.swipe_history or self.swipe_used):
+                self.swipe_gap_since = now
+        else:
+            self._reset_swipe()
 
         # 4. 두 손가락 스크롤, 5. 편 손 스와이프, 6. 검지 커서 이동.
         if two_fingers:
@@ -220,6 +232,11 @@ class DesktopController:
         self.feedback = self.action = "SCROLL UP" if steps > 0 else "SCROLL DOWN"
         self.feedback_until = now + self.config.feedback_time
         return [Event("scroll", steps=steps)]
+
+    def _reset_swipe(self):
+        self.swipe_history.clear()
+        self.swipe_gap_since = None
+        self.swipe_used = False
 
     def _switch(self, now, palm):
         c = self.config
